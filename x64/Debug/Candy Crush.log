@@ -1,0 +1,23 @@
+﻿  main.cpp
+D:\Candy Crush\Candy Crush\main.cpp(1181,74): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1181,54): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1188,80): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1188,56): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1193,102): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1193,73): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+D:\Candy Crush\Candy Crush\main.cpp(1626,21): error C2360: initialization of 'matchCount' is skipped by 'case' label
+      D:\Candy Crush\Candy Crush\main.cpp(1602,29):
+      see declaration of 'matchCount'
+  
+D:\Candy Crush\Candy Crush\main.cpp(1630,21): error C2360: initialization of 'matchCount' is skipped by 'case' label
+      D:\Candy Crush\Candy Crush\main.cpp(1602,29):
+      see declaration of 'matchCount'
+  
+D:\Candy Crush\Candy Crush\main.cpp(1634,21): error C2360: initialization of 'matchCount' is skipped by 'case' label
+      D:\Candy Crush\Candy Crush\main.cpp(1602,29):
+      see declaration of 'matchCount'
+  
+D:\Candy Crush\Candy Crush\main.cpp(1635,21): error C2361: initialization of 'matchCount' is skipped by 'default' label
+      D:\Candy Crush\Candy Crush\main.cpp(1602,29):
+      see declaration of 'matchCount'
+  
