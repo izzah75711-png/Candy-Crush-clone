@@ -23,7 +23,7 @@ enum GameState {
     STATE_ACHIEVEMENT,
     STATE_LIVES_WAITING,
     STATE_INSTRUCTIONS,
-    STATE_PAUSED // ADDED
+    STATE_PAUSED
 };
 
 // State machine for handling match-3 sequence animations
@@ -53,10 +53,7 @@ void swap(CandyType& a, CandyType& b) {
 GameState gameState = STATE_INTRO;
 GameLogicState logicState = LOGIC_IDLE;
 const int MAX_GRID_SIZE = 9;
-
-// ADDED
-GameState previousGameState = STATE_MENU; // to remember the state before pausing
-// END ADDED
+GameState previousGameState = STATE_MENU;
 
 CandyType level1Candies[MAX_GRID_SIZE][MAX_GRID_SIZE];
 int matched[MAX_GRID_SIZE][MAX_GRID_SIZE];
@@ -84,7 +81,9 @@ int lives = 3;
 int volume = 5;
 bool isMuted = false;
 int totalStars = 0;
-int levelStars[15] = { 0 };
+// CHANGED ARRAY SIZE to MAX_LEVEL_COUNT (10) for consistency
+const int MAX_LEVEL_COUNT = 10;
+int levelStars[MAX_LEVEL_COUNT] = { 0 };
 
 long long livesEndTimestamp = 0;
 
@@ -99,6 +98,10 @@ int boosterR = -1;
 int boosterC = -1;
 int boosterUseCount = 0;
 bool failSound2Played = false;
+
+// HIGH SCORES ARRAY KEPT
+long long highScores[MAX_LEVEL_COUNT] = { 0 };
+
 
 // Booster Explosion Variables
 sf::Clock boosterExplosionClock;
@@ -154,192 +157,253 @@ void playLevel(int gain);
 bool CheckForPossibleMoves(int gridSize);
 void ShuffleBoard(int gridSize);
 void refillBoard(int gridSize);
-//END FORWARD DECLARATIONS
+void updateHighScores(int level, long long currentScore);
 
+//END FORWARD DECLARATIONS
+void updateHighScores(int level, long long currentScore) {
+    if (level >= 1 && level <= MAX_LEVEL_COUNT) {
+        int index = level - 1;
+
+        if (currentScore > highScores[index]) {
+            highScores[index] = currentScore;
+
+            saveGameProgress();
+            cout << "New High Score for Level " << level << ": " << currentScore << endl;
+        }
+    }
+}
 void resetGame() {
     maxUnlockedLevel = 1;
     lives = 3;
     totalStars = 0;
     livesEndTimestamp = 0;
-    for (int i = 0; i < 15; ++i) {
+    // Use MAX_LEVEL_COUNT
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
         levelStars[i] = 0;
+        highScores[i] = 0; // Reset high scores too
     }
     gameState = STATE_MENU;
     saveGameProgress();
     cout << "Game progress reset. Returning to menu." << endl;
 }
 
-// ADDED PAUSE/RESUME FUNCTIONS
 void pauseGame() {
-    if (gameState != STATE_PAUSED) {
-        previousGameState = gameState; // save current state
+    if (gameState == STATE_LEVEL1) {
+        previousGameState = gameState; // current state save karein
         gameState = STATE_PAUSED;
+        levelStateMusic.pause(); // Level music pause karein
         cout << "Game paused!" << endl;
     }
 }
 
 void resumeGame() {
     if (gameState == STATE_PAUSED) {
-        gameState = previousGameState; // restore saved state
+        gameState = previousGameState; // saved state restore karein
+        levelStateMusic.play(); // Level music resume karein
         cout << "Game resumed!" << endl;
     }
 }
-// END ADDED PAUSE/RESUME FUNCTIONS
 
 
 void calculateTotalStars() {
     totalStars = 0;
-    for (int i = 0; i < 10; ++i) {
+    // Use MAX_LEVEL_COUNT
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
         totalStars += levelStars[i];
     }
 }
-// ... (rest of loadGameProgress and saveGameProgress functions are omitted for brevity, but are unchanged)
+// ------------------- Default settings (added) -------------------
+void setdefaultsettings() {
+    maxUnlockedLevel = 1;
+    lives = 3;
+    volume = 5;
+    isMuted = false;
+
+    volumeEnabled = true;
+    volumeValue = 0.5f;
+
+    livesEndTimestamp = 0;
+
+    // Use MAX_LEVEL_COUNT
+    for (int i = 0; i < MAX_LEVEL_COUNT; i++) {
+        levelStars[i] = 0;
+        highScores[i] = 0; // Initialize high scores
+    }
+
+    calculateTotalStars();
+    // Save defaults to ensure a valid savegame file exists
+    saveGameProgress();
+
+    cout << "Default settings loaded.\n";
+}
+
+
 void loadGameProgress() {
-    ifstream inFile("savegame (1).txt");
-    if (!inFile.is_open()) {
-        inFile.open("savegame.txt"); // fallback to main save file
+    ifstream infile("savegame.txt");
+
+    if (!infile.is_open()) {
+        cout << "Save file not found! Using default progress." << endl;
+        setdefaultsettings();
+        return;
     }
 
-    bool saveNeeded = false; // flag to know if we need to write defaults back
+    // --- 1. Read the 5 main global variables (all int) ---
+    int file_maxlevel, file_lives, file_volume, file_mute;
+    long long file_timestamp; // Use long long for timestamp
 
-    if (inFile.is_open()) {
-        int tempMaxLevel = 1, tempLives = 3, tempVolume = 10, tempMute = 0;
-        long long tempTimestamp = 0;
-        int tempLevelStars[10] = { 0 };
+    if (!(infile >> file_maxlevel >> file_lives >> file_volume >> file_mute >> file_timestamp)) {
+        infile.close();
+        cout << "Corrupted save: failed to read main global values. Using default progress." << endl;
+        setdefaultsettings();
+        return;
+    }
 
-        // Validate each main value individually
-        bool readSuccess = true;
-
-        if (!(inFile >> tempMaxLevel)) readSuccess = false;
-        if (!(inFile >> tempLives)) readSuccess = false;
-        if (!(inFile >> tempVolume)) readSuccess = false;
-        if (!(inFile >> tempMute)) readSuccess = false;
-        if (!(inFile >> tempTimestamp)) tempTimestamp = 0; // optional fallback
-
-        // Read level stars safely
-        for (int i = 0; i < 10; ++i) {
-            if (!(inFile >> tempLevelStars[i])) tempLevelStars[i] = 0;
+    int file_stars[MAX_LEVEL_COUNT];
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
+        if (!(infile >> file_stars[i])) {
+            infile.close();
+            cout << "Corrupted save: failed to read all star values. Using default progress." << endl;
+            setdefaultsettings();
+            return;
         }
+    }
 
-        inFile.close();
-
-        // If reading failed, fallback to defaults
-        if (!readSuccess) {
-            cout << "Uh-oh! The save file seems messy. Starting fresh with default values." << endl;
-            tempMaxLevel = 1;
-            tempLives = 3;
-            tempVolume = 10;
-            tempMute = 0;
-            tempTimestamp = 0;
-            for (int i = 0; i < 10; ++i) tempLevelStars[i] = 0;
-
-            saveNeeded = true; // mark to save defaults to file
+    long long file_highScores[MAX_LEVEL_COUNT];
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
+        if (!(infile >> file_highScores[i])) {
+            infile.close();
+            cout << "Corrupted save: failed to read all high score values. Using default progress." << endl;
+            setdefaultsettings();
+            return;
         }
+    }
 
-        // Assign to actual game variables
-        maxUnlockedLevel = tempMaxLevel;
-        lives = tempLives;
-        volume = tempVolume;
-        isMuted = (tempMute == 1);
-        livesEndTimestamp = tempTimestamp;
-        for (int i = 0; i < 10; ++i) levelStars[i] = tempLevelStars[i];
+    infile.close(); // Close file after successful read
 
-        calculateTotalStars();
+    // ---- VALIDATE AND ASSIGN MAIN VALUES ----
+    if (file_maxlevel < 1 || file_maxlevel > 10 || file_lives < 0 || file_lives > 5 ||
+        file_volume < 0 || file_volume > 10 || (file_mute != 0 && file_mute != 1)) {
+        cout << "Corrupted save: invalid main values. Using default progress." << endl;
+        setdefaultsettings();
+        return;
+    }
 
-        // Handle volume
-        if (isMuted) {
-            volumeEnabled = false;
-            volumeValue = 0.f;
+    // ---- VALIDATE STARS ----
+    for (int i = 0; i < MAX_LEVEL_COUNT; i++) {
+        if (file_stars[i] < 0 || file_stars[i] > 3) {
+            cout << "Corrupted save: invalid star values. Using default progress." << endl;
+            setdefaultsettings();
+            return;
+        }
+    }
+
+
+    for (int i = 0; i < MAX_LEVEL_COUNT; i++) {
+        if (file_highScores[i] < 0) {
+            file_highScores[i] = 0;
+        }
+    }
+
+    // ---- ASSIGN GLOBAL VALUES SAFELY ----
+    lives = file_lives;
+    volume = file_volume;
+    volumeEnabled = (file_mute == 0);
+    volumeValue = volumeEnabled ? (float)file_volume / 10.f : 0.f;
+    livesEndTimestamp = file_timestamp;
+
+
+    for (int i = 0; i < MAX_LEVEL_COUNT; i++) {
+        levelStars[i] = file_stars[i];
+        highScores[i] = file_highScores[i];
+    }
+
+    int revalidatedMaxLevel = 1;
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
+        // If the current level (i+1) has 1 or more stars
+        if (levelStars[i] >= 1) {
+            // Unlock the next level (i+2)
+            revalidatedMaxLevel = i + 2;
         }
         else {
-            volumeEnabled = true;
-            volumeValue = (float)volume / 10.f;
+            // If Level i+1 has 0 stars, stop here and lock subsequent levels.
+            break;
         }
-
-        // Handle lives refill
-        if (lives <= 0 && livesEndTimestamp != 0) {
-            long long currentTime = (long long)time(NULL);
-            if ((float)(currentTime - livesEndTimestamp) >= LIVES_REFILL_TIME) {
-                lives = 3;
-                livesEndTimestamp = 0;
-                cout << "Sweet! Your lives refilled. Ready to crush more candies!" << endl;
-            }
-            else {
-                gameState = STATE_LIVES_WAITING;
-                cout << "Hang tight! Your candy refill is on the way..." << endl;
-            }
-        }
-        else {
-            cout << "Welcome back! You have " << lives << " lives to play with." << endl;
-        }
-
-        // Automatically save defaults if file was messy
-        if (saveNeeded) {
-            saveGameProgress();
-        }
-
     }
-    else {
-        cout << "No candy stash found. Starting a fresh sugar adventure!" << endl;
-        saveGameProgress(); // write defaults to a new file
-    }
+    if (revalidatedMaxLevel > MAX_LEVEL_COUNT) revalidatedMaxLevel = MAX_LEVEL_COUNT;
+
+    // Overwrite the file's potentially incorrect maxUnlockedLevel with the revalidated value
+    maxUnlockedLevel = revalidatedMaxLevel;
+    // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    calculateTotalStars();
+    cout << "Game progress loaded successfully!" << endl;
 }
 
 
 void saveGameProgress() {
-    ofstream outFile("savegame.txt"); // Open save file
+    ofstream outfile("savegame.txt");
 
-    if (outFile.is_open()) {
-        // Make sure total stars are up to date
-        calculateTotalStars();
-
-        // Validate main values before saving
-        if (maxUnlockedLevel < 1) maxUnlockedLevel = 1;
-        if (lives < 0) lives = 0;
-        if (volume < 0) volume = 0;
-        if (volume > 10) volume = 10;
-
-        int volToSave;
-        if (volumeEnabled) {
-            volToSave = (int)(volumeValue * 10.f + 0.5f); // rounding without std::round
-        }
-        else {
-            volToSave = 0;
-        }
-
-        int muteToSave = (volumeEnabled ? 0 : 1);
-
-        // Write main game data
-        outFile << maxUnlockedLevel << " ";
-        outFile << lives << " ";
-        outFile << volToSave << " ";
-        outFile << muteToSave << " ";
-        outFile << livesEndTimestamp << " ";
-
-        // Write level stars
-        for (int i = 0; i < 10; ++i) {
-            if (levelStars[i] < 0) levelStars[i] = 0; // prevent negative stars
-            outFile << levelStars[i];
-            if (i < 9) outFile << " ";
-        }
-
-        outFile << "\n";
-
-        // Friendly message
-        cout << "Your candy kingdom is safe! Progress saved. You have " << lives << " lives left." << endl;
-
-        outFile.close();
+    if (!outfile.is_open()) {
+        cout << "Oops! Could not save your progress!" << endl;
+        return;
     }
-    else {
-        // Could not open file
-        cout << "Oops! Could not save your progress. Check file permissions." << endl;
+
+    // ----- VALIDATION -----
+    if (maxUnlockedLevel < 1) maxUnlockedLevel = 1;
+    if (maxUnlockedLevel > 10) maxUnlockedLevel = 10;
+
+    if (lives < 0) lives = 0;
+    if (lives > 5) lives = 5; // adjust if your max lives differ
+
+    if (volume < 0) volume = 0;
+    if (volume > 10) volume = 10;
+
+    int voltosave = (int)(volumeValue * 10.f + 0.5f);
+    if (voltosave < 0) voltosave = 0;
+    if (voltosave > 10) voltosave = 10;
+
+    int mutetosave = volumeEnabled ? 0 : 1;
+    if (mutetosave != 0 && mutetosave != 1) mutetosave = 0;
+
+    // Fix invalid stars
+    for (int i = 0; i < MAX_LEVEL_COUNT; i++) {
+        if (levelStars[i] < 0) levelStars[i] = 0;
+        if (levelStars[i] > 3) levelStars[i] = 3;
+
+        // Fix invalid high scores
+        if (highScores[i] < 0) highScores[i] = 0;
     }
+
+    // ----- WRITE VALUES (5 Globals) -----
+    outfile << maxUnlockedLevel << " ";
+    outfile << lives << " ";
+    outfile << voltosave << " ";
+    outfile << mutetosave << " ";
+    outfile << livesEndTimestamp << " ";
+
+    // ----- WRITE LEVEL STARS (10 values) -----
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
+        outfile << levelStars[i];
+        outfile << " "; // Always add a space for separation
+    }
+
+    // ----- WRITE HIGH SCORES (10 values) -----
+    for (int i = 0; i < MAX_LEVEL_COUNT; ++i) {
+        outfile << highScores[i];
+        if (i < MAX_LEVEL_COUNT - 1) outfile << " "; // Space only between scores
+    }
+
+    outfile << "\n";
+
+    cout << "Your candy kingdom is safe! Progress saved!" << endl;
+    outfile.close();
 }
 
 
-//GAME LOGIC FUNCTIONS
+//GAME LOGIC FUNCTIONS (Rest of the functions are unchanged from your file)
 
 int getGridSize(int level) {
+
     if (level == 1 || level == 2) return 5;
     if (level == 3 || level == 4) return 6;
     if (level == 5 || level == 6) return 7;
@@ -347,10 +411,10 @@ int getGridSize(int level) {
     if (level == 9 || level == 10) return 9;
     return 0;
 }
-// ... (rest of the file's logic functions are omitted for brevity, but are unchanged)
 
 int getLevelMoves(int level)
 {
+
     if (level == 1 || level == 2) return 20;
     if (level == 3 || level == 4) return 18;
     if (level == 5 || level == 6) return 15;
@@ -360,6 +424,7 @@ int getLevelMoves(int level)
 }
 
 int calculateStars(int score, int currentLevel) {
+
     if (currentLevel < 1 || currentLevel > 10) return 0;
     int index = currentLevel - 1;
     int first = scorethreshold[index][0];
@@ -373,16 +438,19 @@ int calculateStars(int score, int currentLevel) {
 }
 
 void updateStars() {
+
     currentlivestars = calculateStars(score, currentLevel);
 }
 
 bool isLevelPassedForWin() {
+
     if (currentLevel < 1 || currentLevel > 10) return false;
     int threeStarScore = scorethreshold[currentLevel - 1][2];
     return score >= threeStarScore;
 }
 
 void failLevel() {
+
     if (lives > 0) {
         lives--;
         saveGameProgress();
@@ -414,6 +482,7 @@ void triggerFailure() {
 //Handles quitting the level, which is always a fail condition
 
 void quitLevel() {
+
     if (gameState == STATE_LEVEL1) {
         triggerFailure();
     }
@@ -439,7 +508,7 @@ void completeLevel() {
             }
         }
     }
-
+    updateHighScores(currentLevel, score);
     saveGameProgress();
 
     levelStateMusic.stop();
@@ -465,6 +534,7 @@ void completeLevel() {
 
 //Manages the score updates and level completion/failure logic
 void playLevel(int gain) {
+
     if (currentMoves == 0 && score == 0) {
         currentMoves = getLevelMoves(currentLevel);
     }
@@ -499,6 +569,7 @@ void playLevel(int gain) {
 //Takes CandyType array
 void GenerateCandyGrid(CandyType grid[][MAX_GRID_SIZE], int gridSize, int candyTypes)
 {
+
     for (int i = 0; i < MAX_GRID_SIZE; i++) {
         for (int j = 0; j < MAX_GRID_SIZE; j++) {
             //Access the enum
@@ -666,6 +737,7 @@ end_booster_search:;
 //Removes matched candies and creates a wrapped booster if applicable.
 void removeMatches(int gridSize)
 {
+
     bool boosterCreatedNow = (boosterR != -1 && boosterC != -1);
 
     if (boosterCreatedNow && gameState == STATE_LEVEL1) {
@@ -691,6 +763,7 @@ void removeMatches(int gridSize)
 
 void applyGravity(int gridSize)
 {
+
     for (int column = 0; column < gridSize; column++)
     {
         for (int row = gridSize - 1; row >= 0; row--)
@@ -718,6 +791,7 @@ void applyGravity(int gridSize)
 //Refills empty spaces with random candies
 void refillBoard(int gridSize)
 {
+
     for (int i = 0; i < gridSize; i++)
     {
         for (int j = 0; j < gridSize; j++)
@@ -734,6 +808,7 @@ void refillBoard(int gridSize)
 
 //Performs the actual candy clearing and score update for the wrapped booster
 void clearWrappedEffect(int r, int c, int gridSize) {
+
     int clearedCount = 0;
 
     // Clear Row
@@ -765,6 +840,7 @@ void clearWrappedEffect(int r, int c, int gridSize) {
 
 void SwapCandies(int r1, int c1, int r2, int c2)
 {
+
     int gridSize = getGridSize(currentLevel);
     bool activated = false;
 
@@ -807,10 +883,12 @@ void SwapCandies(int r1, int c1, int r2, int c2)
 }
 
 bool areAdjacent(int r1, int c1, int r2, int c2) {
+
     return (std::abs(r1 - r2) + std::abs(c1 - c2) == 1);
 }
 
 sf::Vector2f getCandyPosition(int r, int c, int gridSize, float cellSize, float gap) {
+
     const float GAME_AREA_X = 500.f;
     const float GAME_AREA_Y = 200.f;
     const float GAME_AREA_WIDTH = 800.f;
@@ -957,7 +1035,9 @@ int main() {
     sf::RenderWindow window(sf::VideoMode(1800, 1100), "Candy Crush Clone");
     window.setFramerateLimit(60);
 
-    //ASSET LOADING
+    //... (Rest of main function is unchanged and is included for completeness)
+
+        //ASSET LOADING
     if (!mainFont.loadFromFile("assets/funsized.ttf")) std::cerr << "Failed to load funsized font\n";
 
     sf::Font volumeFont;
@@ -1048,7 +1128,7 @@ int main() {
 
     if (!instructionManualBtnTexture.loadFromFile("assets/instructionManual.png")) std::cerr << "Failed to load instructionManual.jpg\n";
     sf::Texture instructionManualPageTexture;
-    if (!instructionManualPageTexture.loadFromFile("assets/instructionManualPage.png")) std::cerr << "Failed to load instructionManualPage.jpg\n";
+    if (!instructionManualPageTexture.loadFromFile("assets/instructionManualPage.png")) std::cerr << "Failed to load instructionManualPage.png\n";
 
     SettingBtnTexture.loadFromFile("assets/SettingsButton.png");
 
@@ -1169,22 +1249,6 @@ int main() {
     endLevelText.setOrigin(0, 0);
     endLevelText.setCharacterSize(50);
 
-    // ADDED PAUSE UI
-    sf::Text pauseText;
-    pauseText.setFont(mainFont);
-    pauseText.setCharacterSize(80);
-    pauseText.setFillColor(sf::Color(255, 255, 0)); // Yellow color
-    pauseText.setOutlineColor(sf::Color(0, 0, 0));
-    pauseText.setOutlineThickness(5);
-    pauseText.setString("GAME PAUSED\n\nPress P to Resume");
-
-    float centerX = 900.f;
-    float centerY = 550.f;
-    pauseText.setOrigin(pauseText.getLocalBounds().width / 2.f, pauseText.getLocalBounds().height / 2.f);
-    pauseText.setPosition(centerX, centerY);
-    // END ADDED PAUSE UI
-
-
     // Initial grid setup
     restartLevel(currentLevel);
 
@@ -1200,9 +1264,8 @@ int main() {
                 window.close();
             }
 
-            //UNIVERSAL INPUT
             if (event.type == sf::Event::KeyPressed) {
-                // PAUSE TOGGLE (Only active in game states)
+
                 if (event.key.code == sf::Keyboard::P) {
                     if (gameState == STATE_LEVEL1) {
                         pauseGame();
@@ -1211,33 +1274,61 @@ int main() {
                         resumeGame();
                     }
                 }
-                // END PAUSE TOGGLE
+                if (gameState == STATE_MENU && event.key.code == sf::Keyboard::S)
+                    gameState = STATE_SETTINGS;
+                if (gameState == STATE_SETTINGS && event.key.code == sf::Keyboard::C)
+                    gameState = STATE_MENU;
 
-                if (gameState == STATE_MENU && event.key.code == sf::Keyboard::S) gameState = STATE_SETTINGS;
-                if (gameState == STATE_SETTINGS && event.key.code == sf::Keyboard::C) gameState = STATE_MENU;
-
-                if (gameState == STATE_MENU && event.key.code == sf::Keyboard::I) gameState = STATE_INSTRUCTIONS;
-                if (gameState == STATE_INSTRUCTIONS && event.key.code == sf::Keyboard::C) gameState = STATE_MENU;
+                if (gameState == STATE_MENU && event.key.code == sf::Keyboard::I) {
+                    gameState = STATE_INSTRUCTIONS;
+                }
+                if (gameState == STATE_INSTRUCTIONS && event.key.code == sf::Keyboard::C) {
+                    gameState = STATE_MENU;
+                }
 
                 if (gameState != STATE_LIVES_WAITING) {
-                    // *** MODIFIED: 'P' now goes to levels (Play button action) from the menu
-                    if (gameState == STATE_MENU && event.key.code == sf::Keyboard::P) gameState = STATE_LEVELS;
-                    if (gameState == STATE_LEVELS && event.key.code == sf::Keyboard::B) gameState = STATE_MENU;
+                    if (gameState == STATE_MENU && event.key.code == sf::Keyboard::P) {
+                        gameState = STATE_LEVELS;
+                    }
+                    if (gameState == STATE_LEVELS && event.key.code == sf::Keyboard::B) {
+                        gameState = STATE_MENU;
+                    }
                 }
-
-                if (event.key.code == sf::Keyboard::U && volumeEnabled) { volumeValue += 0.05f; if (volumeValue > 1.f) volumeValue = 1.f; }
+                if (event.key.code == sf::Keyboard::U && volumeEnabled)
+                {
+                    volumeValue += 0.05f;
+                    if (volumeValue > 1.f)
+                        volumeValue = 1.f;
+                }
                 if (event.key.code == sf::Keyboard::D && volumeEnabled) { volumeValue -= 0.05f; if (volumeValue < 0.f) volumeValue = 0.f; }
                 if (event.key.code == sf::Keyboard::M) { volumeEnabled = !volumeEnabled; if (!volumeEnabled) { previousVolumeValue = volumeValue; volumeValue = 0.f; } else { volumeValue = previousVolumeValue; } }
-
-                if ((gameState == STATE_LEVEL1 || gameState == STATE_LEVEL_END_PREVIEW) && event.key.code == sf::Keyboard::Q) {
-                    if (gameState == STATE_LEVEL_END_PREVIEW) {
-                        gameState = nextLevelState;
+                else if ((gameState == STATE_LEVEL1 || gameState == STATE_LEVEL_END_PREVIEW || gameState == STATE_PAUSED) && event.key.code == sf::Keyboard::Q) {
+                    {
+                        if (gameState == STATE_LEVEL_END_PREVIEW)
+                        {
+                            gameState = nextLevelState;
+                        }
+                        else
+                        {
+                            quitLevel();
+                        }
                     }
-                    else {
-                        quitLevel();
+
+
+                    if (gameState == STATE_PAUSED) {
+                        sf::RectangleShape overlay(sf::Vector2f(1800, 1100));
+                        overlay.setFillColor(sf::Color(0, 0, 0, 150)); // Dark overlay
+                        window.draw(overlay);
+
+                        sf::Text pauseText("PAUSED\n\nPress 'P' to Resume", mainFont, 80);
+                        pauseText.setFillColor(sf::Color::Yellow);
+                        pauseText.setOutlineColor(sf::Color::Red);
+                        pauseText.setOutlineThickness(3.f);
+                        pauseText.setOrigin(pauseText.getLocalBounds().width / 2.f, pauseText.getLocalBounds().height / 2.f);
+                        pauseText.setPosition(900, 550);
+                        window.draw(pauseText);
                     }
                 }
-
                 if (gameState == STATE_LEVELS) {
                     int lvl = -1;
                     if (event.key.code >= sf::Keyboard::Num1 && event.key.code <= sf::Keyboard::Num9) {
@@ -1268,9 +1359,6 @@ int main() {
 
             if (event.type == sf::Event::MouseButtonPressed) {
                 sf::Vector2f mousePos = window.mapPixelToCoords({ event.mouseButton.x, event.mouseButton.y });
-
-                // Block game area clicks while paused
-                if (gameState == STATE_PAUSED) continue;
 
                 if (gameState == STATE_MENU) {
                     if (instructionManualBtn.getGlobalBounds().contains(mousePos)) {
@@ -1489,6 +1577,18 @@ int main() {
             totalStarsText.setPosition(630, 100);
             window.draw(totalStarsText);
 
+            // Display High Scores (NEW)
+            for (int i = 0; i < 10; ++i) {
+                if (highScores[i] > 0) {
+                    sf::Text hsText("HS: " + std::to_string(highScores[i]), levelInsideFont, 20);
+                    hsText.setFillColor(sf::Color::Blue);
+                    hsText.setPosition(levelPositionsX[i] - 30, levelPositionsY[i] + 80);
+                    window.draw(hsText);
+                }
+            }
+            // End Display High Scores
+
+
             for (int i = 0; i < 10; i++) {
                 int lvl = i + 1;
                 bool isUnlocked = (lvl <= maxUnlockedLevel);
@@ -1702,76 +1802,6 @@ int main() {
                 window.draw(pauseText);
             }
         }
-        // ADDED PAUSED STATE DRAWING
-        else if (gameState == STATE_PAUSED) {
-            // Re-draw the level background and board (similar to STATE_LEVEL1)
-            window.draw(gridUp);
-            window.draw(grid);
-            window.draw(icon);
-            window.draw(quitBtnShadow);
-            window.draw(quitBtn);
-            window.draw(livesBg);
-
-            // Draw level UI text (Moves, Score, Stars)
-            sf::Text starsLabel("Stars:", levelInsideFont, 30);
-            starsLabel.setFillColor(sf::Color(204, 153, 0));
-            starsLabel.setPosition(620, 45);
-            window.draw(starsLabel);
-
-            sf::Sprite starSprite(starTexture);
-            float starSize = 35.f;
-            float startY = 45.f;
-            float startX = 700.f;
-            float scale = starSize / starTexture.getSize().x;
-            starSprite.setScale(scale, scale);
-
-            for (int i = 0; i < currentlivestars; ++i) {
-                starSprite.setPosition(startX + i * (starSize + 5.f), startY);
-                window.draw(starSprite);
-            }
-
-            sf::Text requirementText("Moves : " + std::to_string(currentMoves), levelInsideFont, 30);
-            requirementText.setFillColor(sf::Color(0, 100, 0)); requirementText.setPosition(620, 75); window.draw(requirementText);
-
-            sf::Text scoreDisplay("Score : " + std::to_string(score), levelInsideFont, 30);
-            scoreDisplay.setFillColor(sf::Color::Red); scoreDisplay.setPosition(620, 105); window.draw(scoreDisplay);
-
-            // Draw the board (candies)
-            int gridSize = getGridSize(currentLevel);
-            float cellSize = 75.f; float gap = 10.f;
-
-            for (int i = 0; i < gridSize; i++) {
-                for (int j = 0; j < gridSize; j++) {
-                    CandyType type = level1Candies[i][j];
-
-                    if (type != TYPE_EMPTY) {
-                        sf::Sprite candySprite(candyTextures[type]);
-
-                        float cellSizeFinal = 75.f;
-                        float scaleX = cellSizeFinal / candyTextures[type].getSize().x;
-                        float scaleY = cellSizeFinal / candyTextures[type].getSize().y;
-                        candySprite.setScale(scaleX, scaleY);
-
-                        sf::Vector2f pos = getCandyPosition(i, j, gridSize, cellSizeFinal, gap);
-                        candySprite.setPosition(pos);
-
-                        // Dim the board slightly
-                        candySprite.setColor(sf::Color(150, 150, 150));
-
-                        window.draw(candySprite);
-                    }
-                }
-            }
-
-
-            // Draw overlay and pause text
-            sf::RectangleShape overlay(sf::Vector2f(1800, 1100));
-            overlay.setFillColor(sf::Color(0, 0, 0, 150));
-            window.draw(overlay);
-
-            window.draw(pauseText);
-        }
-        // END ADDED PAUSED STATE DRAWING
         else if (gameState == STATE_WIN)
         {
             sf::RectangleShape overlay(sf::Vector2f(1800, 1100));
@@ -1854,13 +1884,14 @@ int main() {
                 window.draw(endLevelText);
             }
         }
-
         endLevelText.setCharacterSize(50);
         endLevelText.setFillColor(sf::Color(255, 255, 255));
         endLevelText.setOutlineColor(sf::Color(150, 30, 60));
 
         window.display();
-    }
 
+    }
     return 0;
 }
+
+
